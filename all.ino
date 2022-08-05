@@ -2,30 +2,38 @@
 #include <LiquidCrystal_I2C.h>
 #include <Servo.h> 
 #include <EEPROM.h>
+#include <SoftwareSerial.h>
 #include <string.h>
 #include <limits.h>
 
 //eeprom에 쓸 데이터 크기(바이트 단위)
 #define CAR_ID_LENGTH 64
 
-//모터 스피드 세팅(0~255)
+//모터 스피드 세팅. 실질적으로 130~255 사이의 값을 줘야 움직임
 #define DEFAULT_SPEED 255
 
-//핀 세팅
+//블루투스 프로토콜 헤더
+#define DEFAULT_HEADER_LENGTH 2
+#define MAX_INFORMATION_LENGTH 128
+const unsigned char defaultHeader[DEFAULT_HEADER_LENGTH] = {
+    //'B', 'C'
+    0xA6, 0x12
+};
 
-#define PIN_BLUETOOTH_RX 0
-#define PIN_BLUETOOTH_TX 1
-#define PIN_EEPROM_RESET_BTN 2
-#define PIN_START_CAR_BTN 3
-#define PIN_MOTOR_IN1 7
-#define PIN_MOTOR_IN2 8
-#define PIN_MOTOR_IN3 11
-#define PIN_MOTOR_IN4 12
+//핀 세팅
+#define PIN_BLUETOOTH_RX 8
+#define PIN_BLUETOOTH_TX 7
+#define PIN_EEPROM_RESET_BTN 3
+#define PIN_START_CAR_BTN 4
+#define PIN_MOTOR_IN1 A2
+#define PIN_MOTOR_IN2 A3
+#define PIN_MOTOR_IN3 12
+#define PIN_MOTOR_IN4 13
 #define PIN_MOTOR_ENA 5
 #define PIN_MOTOR_ENB 6
 #define PIN_DOOR_SERVO 9
 #define PIN_TRUNK_SERVO 10
-#define PIN_START_CAR_OUT 13
+#define PIN_START_CAR_OUT 11
 
 class Rom{
     #define ROM_SET_CAR_ID 1
@@ -150,7 +158,7 @@ class Repeater {
     Reserver에 의해 반복 호출될 작업을 수행하는 클래스
     */
 private:
-    bool _isStarted; //start 되어있나?
+    bool _isStarted; 
     unsigned long term; // 반복 주기
     int count; // onRepeat에 전달되는 start 이후에 onRepeat을 호출한 횟수
     //반복 함수. 람다 함수는 friend 처리되므로 private
@@ -421,7 +429,7 @@ protected:
     }
     virtual void onShortPushed() override{
         if(rom.getRomState() & ROM_SET_CAR_ID)
-            lcd.print("ID assigned", "...", 2000);
+            lcd.print("ID assigned!", "", 2000);
         else
             lcd.print("ID not assigned", "...", 2000);
     }
@@ -460,6 +468,8 @@ public:
     }
 };
 
+class Bluetooth;
+
 class Car{
 private:
     int pinStartOut;
@@ -467,8 +477,9 @@ private:
     Motor *motor;
     MoveTester moveTester;
     Door *door, *trunk;
+    Bluetooth *bluetooth;
     
-    void turnOnLight(){
+    void lightOnStart(){
         digitalWrite(pinStartOut, HIGH);
         reserver.doAfter([&]{
             digitalWrite(pinStartOut, LOW);
@@ -479,6 +490,9 @@ private:
         
     }
 
+    void turnOnLight(){
+        digitalWrite(pinStartOut, HIGH);
+    }
     void turnOffLight(){
         digitalWrite(pinStartOut, LOW);
     }
@@ -486,13 +500,14 @@ private:
 
 public:
     Car()
-    : pinStartOut(-1), started(0), motor(NULL), moveTester(1000), door(NULL), trunk(NULL){ }
+    : pinStartOut(-1), started(0), motor(NULL), moveTester(1000), door(NULL), trunk(NULL), bluetooth(NULL){ }
 
-    void attach(int pinStartOut, Motor *motor, Door *door, Door *trunk){
+    void attach(int pinStartOut, Motor *motor, Door *door, Door *trunk, Bluetooth *bluetooth){
         this->door = door;
         this->trunk = trunk;
         this->pinStartOut = pinStartOut;
         this->motor = motor;
+        this->bluetooth = bluetooth;
         moveTester.setMotor(this->motor);
         pinMode(pinStartOut, OUTPUT);
     }
@@ -500,7 +515,7 @@ public:
     void on(){
         started = 1; // 시동 상태 기록
         lcd.print("Start Car...", 5000);
-        turnOnLight();
+        lightOnStart();
         moveTester.start();
     }
 
@@ -511,17 +526,19 @@ public:
         moveTester.stop();
     }
 
+    bool handle(){
+
+    }
+
     enum class LOCKING_STATE{
         OPEN, CLOSE
     };
 
     void controlDoor(LOCKING_STATE open){
         if(open == LOCKING_STATE::OPEN){
-            lcd.print("Open the door.", 3000);
             door->open();
         }
         else if(open == LOCKING_STATE::CLOSE){
-            lcd.print("Close the door.", 3000);
             door->close();
         }
     }
@@ -552,9 +569,6 @@ public:
     }
 
     int isStarted(){ return started; }
-
-    void update(){
-    }
         
 };
 
@@ -582,10 +596,12 @@ protected:
             }
             doorTime = millis();
             if(car->getDoorState() == Car::LOCKING_STATE::OPEN){
+                lcd.print("Close the door.", 3000);
                 car->controlDoor(Car::LOCKING_STATE::CLOSE);
                 car->controlTrunk(Car::LOCKING_STATE::CLOSE);
             }
             else{
+                lcd.print("Open the door.", 3000);
                 car->controlDoor(Car::LOCKING_STATE::OPEN);
                 car->controlTrunk(Car::LOCKING_STATE::OPEN);
             }
@@ -597,6 +613,65 @@ public:
     }
 };
 
+
+class Bluetooth{
+private:
+    SoftwareSerial *btSerial;
+    Car *car;
+public:
+    Bluetooth():btSerial(NULL), car(NULL) {}
+    void begin(int pinTx, int pinRx, Car *car){
+        btSerial = new SoftwareSerial(pinTx, pinRx);
+        btSerial->begin(9600);
+        this->car = car;
+    }
+    ~Bluetooth(){
+        if(btSerial)
+            delete btSerial;
+    }
+    int interpret(unsigned char *dataArray);
+    void update(){
+        unsigned char data;
+        int i = 0;
+        for(; btSerial->available() && i < DEFAULT_HEADER_LENGTH ; i++){
+            data = btSerial->read();
+            Serial.print(data);
+            if(data != defaultHeader[i]) //잘못된 데이터는 버린다.
+                return;
+        }
+        if(i < DEFAULT_HEADER_LENGTH)
+            return;
+        //올바른 데이터인 경우
+        unsigned char dataArray[MAX_INFORMATION_LENGTH + 1] = {0};
+        i = 0;
+        while(btSerial->available()){
+            dataArray[i++] = btSerial->read();
+            Serial.print(data);
+            if(i >= MAX_INFORMATION_LENGTH)
+                break;
+        }
+        interpret(dataArray);
+    }
+    void sendEngineOffData(){
+
+    }
+};
+
+int Bluetooth::interpret(unsigned char *dataArray){
+    int i = 0;
+    unsigned char headerNumber = dataArray[i++];
+    switch(headerNumber){
+        case 'A':
+            Serial.println("OK");
+            lcd.print("nice","good job", 5000);
+            break;
+        default:
+            return -1;
+    }
+    return 0;
+}
+
+Bluetooth bluetooth;
 Motor motor;
 EepromResetButton eepromResetBtn;
 StartButton startBtn;
@@ -611,12 +686,13 @@ void setup() {
     motor.attach(DEFAULT_SPEED, PIN_MOTOR_IN1, PIN_MOTOR_IN2, PIN_MOTOR_IN3, PIN_MOTOR_IN4, PIN_MOTOR_ENA, PIN_MOTOR_ENB);
     door.attach(PIN_DOOR_SERVO);
     trunk.attach(PIN_TRUNK_SERVO);
-    car.attach(PIN_START_CAR_OUT, &motor, &door, &trunk);
+    car.attach(PIN_START_CAR_OUT, &motor, &door, &trunk, &bluetooth);
 
     eepromResetBtn.attach(PIN_EEPROM_RESET_BTN, 5000);
     startBtn.attach(PIN_START_CAR_BTN, 2000);
     startBtn.setCar(&car);
-    lcd.setDefaultMessage("not connected.", "");
+    bluetooth.begin(PIN_BLUETOOTH_RX, PIN_BLUETOOTH_TX, &car);
+    lcd.setDefaultMessage("Carflix", "is now ready");
     lcd.print("Device Boot", "Complete!", 10000);
 }
 
@@ -625,7 +701,7 @@ void loop() {
     startBtn.update();
     lcd.update();
     reserver.update();
-    car.update();
+    bluetooth.update();
     delay(15);
 }
 
