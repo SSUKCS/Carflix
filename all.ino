@@ -20,6 +20,21 @@ const unsigned char defaultHeader[DEFAULT_HEADER_LENGTH] = {
     0xA6, 0x12
 };
 
+#define HR_CAR_CONTROL 25
+#define HR_REQUEST_START 57
+#define HR_ACCEPT_START 59
+#define HR_REQUEST_BTC 65
+#define HR_ASSIGN_ID 68
+#define HR_REQUEST_DEL_ID 72
+
+#define HS_REQUEST_AVAILABLE 58
+#define HS_SEND_CAR_STATE 60
+#define HS_SEND_CAR_OFF 63
+#define HS_BTC_SUCCESS 66
+#define HS_SAVED_ID 69
+#define HS_DELETED_ID 73
+
+
 //핀 세팅
 #define PIN_BLUETOOTH_RX 8
 #define PIN_BLUETOOTH_TX 7
@@ -618,6 +633,7 @@ class Bluetooth{
 private:
     SoftwareSerial *btSerial;
     Car *car;
+    int interpret();
 public:
     Bluetooth():btSerial(NULL), car(NULL) {}
     void begin(int pinTx, int pinRx, Car *car){
@@ -629,46 +645,73 @@ public:
         if(btSerial)
             delete btSerial;
     }
-    int interpret(unsigned char *dataArray);
-    void update(){
-        unsigned char data;
-        int i = 0;
-        for(; btSerial->available() && i < DEFAULT_HEADER_LENGTH ; i++){
-            data = btSerial->read();
-            Serial.print(data);
-            if(data != defaultHeader[i]) //잘못된 데이터는 버린다.
+    void sendData(unsigned char headerCode, unsigned char *dataArray=NULL);
+    void receiveData(){
+        if(btSerial->available()){
+            unsigned char data;
+            int i = 0;
+            for(; i < DEFAULT_HEADER_LENGTH ; i++){
+                data = btSerial->read();
+                Serial.print(data);
+                if(data != defaultHeader[i]) //잘못된 데이터는 버린다.
+                    return;
+            }
+            if(i < DEFAULT_HEADER_LENGTH)
                 return;
+            //올바른 데이터인 경우
+            interpret();
         }
-        if(i < DEFAULT_HEADER_LENGTH)
-            return;
-        //올바른 데이터인 경우
-        unsigned char dataArray[MAX_INFORMATION_LENGTH + 1] = {0};
-        i = 0;
-        while(btSerial->available()){
-            dataArray[i++] = btSerial->read();
-            Serial.print(data);
-            if(i >= MAX_INFORMATION_LENGTH)
-                break;
-        }
-        interpret(dataArray);
-    }
-    void sendEngineOffData(){
-
     }
 };
 
-int Bluetooth::interpret(unsigned char *dataArray){
-    int i = 0;
-    unsigned char headerNumber = dataArray[i++];
+int Bluetooth::interpret(){
+    unsigned char headerNumber = btSerial->read();
     switch(headerNumber){
-        case 'A':
-            Serial.println("OK");
-            lcd.print("nice","good job", 5000);
-            break;
+        case HR_CAR_CONTROL:
+        //자동차 컨트롤
+			break;
+        case HR_REQUEST_START:
+        //시동 요청
+			break;
+		case HR_ACCEPT_START:
+        //시동 허가
+			break;
+		case HR_REQUEST_BTC:
+        //블루투스 연결 요청
+			break;
+		case HR_ASSIGN_ID:
+        //자동차 ID 할당
+			break;
+		case HR_REQUEST_DEL_ID:
+        //자동차 ID 제거 명령
+			break;
         default:
             return -1;
     }
     return 0;
+}
+
+void Bluetooth::sendData(unsigned char headerCode, unsigned char *dataArray){
+    switch(headerCode){
+        case HS_REQUEST_AVAILABLE:
+        //시동 요청이 올바른가
+            break;
+        case HS_SEND_CAR_STATE:
+        //시동상태 전송 요청
+            break;
+        case HS_SEND_CAR_OFF:
+        //시동꺼짐정보 전송 요청
+            break;
+        case HS_BTC_SUCCESS:
+        //블루투스 연결 성공
+            break;
+        case HS_SAVED_ID:
+        //자동차 ID 할당 성공
+            break;
+        case HS_DELETED_ID:
+        //자동차 ID 제거 성공
+            break;
+    }
 }
 
 Bluetooth bluetooth;
@@ -692,6 +735,7 @@ void setup() {
     startBtn.attach(PIN_START_CAR_BTN, 2000);
     startBtn.setCar(&car);
     bluetooth.begin(PIN_BLUETOOTH_RX, PIN_BLUETOOTH_TX, &car);
+    
     lcd.setDefaultMessage("Carflix", "is now ready");
     lcd.print("Device Boot", "Complete!", 10000);
 }
@@ -701,7 +745,7 @@ void loop() {
     startBtn.update();
     lcd.update();
     reserver.update();
-    bluetooth.update();
+    bluetooth.receiveData();
     delay(15);
 }
 
