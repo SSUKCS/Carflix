@@ -11,6 +11,8 @@
 
 //모터 스피드 세팅. 실질적으로 130~255 사이의 값을 줘야 움직임
 #define DEFAULT_SPEED 255
+#define HIGH_SPEED 255
+#define LOW_SPEED 255
 
 //블루투스 프로토콜 헤더
 #define DEFAULT_HEADER_LENGTH 2
@@ -20,37 +22,50 @@ const unsigned char defaultHeader[DEFAULT_HEADER_LENGTH] = {
     0xA6, 0x12
 };
 
-#define HR_CAR_CONTROL 25
-#define HR_REQUEST_START 57
-#define HR_ACCEPT_START 59
-#define HR_REQUEST_BTC 65
-#define HR_ASSIGN_ID 68
-#define HR_REQUEST_DEL_ID 72
+#define RS_CARCTL 25
+#define R_REQON 57
+#define R_START 59
+#define R_REQBC 65
+#define R_ASSIGN_ID 68
+#define R_DELETE_ID 72
+#define R_REQLOCK 74
+#define R_LOCK 76
 
-#define HS_REQUEST_AVAILABLE 58
-#define HS_SEND_CAR_STATE 60
-#define HS_SEND_CAR_OFF 63
-#define HS_BTC_SUCCESS 66
-#define HS_SAVED_ID 69
-#define HS_DELETED_ID 73
+#define S_REQON_AVAIL 58
+#define S_SEND_STATE 60
+#define S_SEND_OFF 63
+#define S_SUCBC 66
+#define S_ASSIGN_ID_OK 69
+#define S_DELETE_OK 73
+#define S_REQLOCK_AVAIL 75
+
+#define C_STOP 10
+#define C_REQ 105
+#define C_REQACK 106
+#define C_OPEN_TRUNK 103
+#define C_CLOSE_TRUNK 104
+#define C_OPEN_DOOR 101
+#define C_CLOSE_DOOR 102
+#define C_CAR_OFF 100
 
 
 //핀 세팅
-#define PIN_BLUETOOTH_RX 8
-#define PIN_BLUETOOTH_TX 7
+#define PIN_BLUETOOTH_RX A2
+#define PIN_BLUETOOTH_TX A3
 #define PIN_EEPROM_RESET_BTN 3
 #define PIN_START_CAR_BTN 4
-#define PIN_MOTOR_IN1 A2
-#define PIN_MOTOR_IN2 A3
+#define PIN_MOTOR_IN1 7
+#define PIN_MOTOR_IN2 8
 #define PIN_MOTOR_IN3 12
 #define PIN_MOTOR_IN4 13
 #define PIN_MOTOR_ENA 5
 #define PIN_MOTOR_ENB 6
+
 #define PIN_DOOR_SERVO 9
 #define PIN_TRUNK_SERVO 10
 #define PIN_START_CAR_OUT 11
 
-class Rom{
+class Rom {
     #define ROM_SET_CAR_ID 1
     #define ROM_NEW_DEVICE 128
 public:
@@ -170,7 +185,7 @@ public:
 
 class Repeater {
     /*
-    Reserver에 의해 반복 호출될 작업을 수행하는 클래스
+        Reserver에 의해 반복 호출될 작업을 수행하는 클래스
     */
 private:
     bool _isStarted; 
@@ -325,18 +340,6 @@ class Motor{
   void move(int side, int how){
     if(side & MOTOR_LEFT){
       if(how == MOTOR_FORWARD){
-        digitalWrite(in1, HIGH);
-        digitalWrite(in2, LOW);
-      } else if(how == MOTOR_BACK) {
-        digitalWrite(in1, LOW);
-        digitalWrite(in2, HIGH);
-      } else if(how == MOTOR_STOP){
-        digitalWrite(in1, HIGH);
-        digitalWrite(in2, HIGH);
-      }
-    }
-    if(side & MOTOR_RIGHT){
-      if(how == MOTOR_FORWARD){
         digitalWrite(in3, HIGH);
         digitalWrite(in4, LOW);
       } else if(how == MOTOR_BACK) {
@@ -345,6 +348,18 @@ class Motor{
       } else if(how == MOTOR_STOP){
         digitalWrite(in3, HIGH);
         digitalWrite(in4, HIGH);
+      }
+    }
+    if(side & MOTOR_RIGHT){
+      if(how == MOTOR_FORWARD){
+        digitalWrite(in1, HIGH);
+        digitalWrite(in2, LOW);
+      } else if(how == MOTOR_BACK) {
+        digitalWrite(in1, LOW);
+        digitalWrite(in2, HIGH);
+      } else if(how == MOTOR_STOP){
+        digitalWrite(in1, HIGH);
+        digitalWrite(in2, HIGH);
       }
     }
   }
@@ -450,59 +465,22 @@ protected:
     }
 };
 
-class MoveTester: public Repeater{
-private:
-    Motor *motor;
-protected:
-    virtual void onStop() override{
-         motor->move(MOTOR_LEFT | MOTOR_RIGHT, MOTOR_STOP); 
-    }
-    virtual void onRepeat(int count) override{
-        switch(count % 6){
-            case 0:
-            case 1:
-                break;
-            case 2:
-                motor->move(MOTOR_LEFT | MOTOR_RIGHT, MOTOR_FORWARD);
-                break;
-            case 3:
-                motor->move(MOTOR_LEFT | MOTOR_RIGHT, MOTOR_STOP);
-                break;
-            case 4:
-                motor->move(MOTOR_LEFT | MOTOR_RIGHT, MOTOR_BACK);
-                break;
-            case 5:
-                motor->move(MOTOR_LEFT | MOTOR_RIGHT, MOTOR_STOP);
-                break;
-        }
-    }
-public:
-    MoveTester(unsigned long term):Repeater(term){}
-    void setMotor(Motor *motor){
-        this->motor = motor;
-    }
-};
-
 class Bluetooth;
 
 class Car{
 private:
     int pinStartOut;
-    int started;
+    bool started;
     Motor *motor;
-    MoveTester moveTester;
     Door *door, *trunk;
     Bluetooth *bluetooth;
     
     void lightOnStart(){
         digitalWrite(pinStartOut, HIGH);
-        reserver.doAfter([&]{
-            digitalWrite(pinStartOut, LOW);
-        }, 100);
-        reserver.doAfter([&]{
-            digitalWrite(pinStartOut, HIGH);
-        }, 200);
-        
+        delay(100);
+        digitalWrite(pinStartOut, LOW);
+        delay(100);
+        digitalWrite(pinStartOut, HIGH);
     }
 
     void turnOnLight(){
@@ -515,7 +493,7 @@ private:
 
 public:
     Car()
-    : pinStartOut(-1), started(0), motor(NULL), moveTester(1000), door(NULL), trunk(NULL), bluetooth(NULL){ }
+    : pinStartOut(-1), started(false), motor(NULL), door(NULL), trunk(NULL), bluetooth(NULL){ }
 
     void attach(int pinStartOut, Motor *motor, Door *door, Door *trunk, Bluetooth *bluetooth){
         this->door = door;
@@ -523,64 +501,108 @@ public:
         this->pinStartOut = pinStartOut;
         this->motor = motor;
         this->bluetooth = bluetooth;
-        moveTester.setMotor(this->motor);
         pinMode(pinStartOut, OUTPUT);
     }
 
     void on(){
-        started = 1; // 시동 상태 기록
+        started = true; // 시동 상태 기록
         lcd.print("Start Car...", 5000);
         lightOnStart();
-        moveTester.start();
     }
 
     void off(){
-        started = 0; // 시동 상태 기록
+        started = false; // 시동 상태 기록
         lcd.print("Engine off...", 5000);
         turnOffLight();
-        moveTester.stop();
     }
 
-    bool handle(){
+    enum class Speed{
+        STOP, SLOW, FAST
+    };
 
+    enum class Direction{
+        FORWARD_LEFT, FORWARD_RIGHT, FORWARD_STRAIGHT,
+        BACK_LEFT, BACK_RIGHT, BACK_STRAIGHT, STOP
+    };
+
+    bool steer(Direction direction, Speed speed){
+        if(started){
+            if(speed==Speed::STOP || direction == Direction::STOP){
+                motor->move(MOTOR_LEFT | MOTOR_RIGHT, MOTOR_STOP);
+                return true;
+            }
+            else if(speed == Speed::SLOW)
+                motor->speed(MOTOR_LEFT | MOTOR_RIGHT, LOW_SPEED);
+            else if(speed == Speed::FAST)
+                motor->speed(MOTOR_LEFT | MOTOR_RIGHT, HIGH_SPEED);
+            else
+                return false;
+            if(direction == Direction::FORWARD_LEFT){
+                motor->move(MOTOR_LEFT, MOTOR_STOP);
+                motor->move(MOTOR_RIGHT, MOTOR_FORWARD);
+            }
+            else if(direction == Direction::FORWARD_RIGHT){
+                motor->move(MOTOR_LEFT, MOTOR_FORWARD);
+                motor->move(MOTOR_RIGHT, MOTOR_STOP);
+            }
+            else if(direction == Direction::FORWARD_STRAIGHT){
+                motor->move(MOTOR_LEFT, MOTOR_FORWARD);
+                motor->move(MOTOR_RIGHT, MOTOR_FORWARD);
+            }
+            else if(direction == Direction::BACK_LEFT){
+                motor->move(MOTOR_LEFT, MOTOR_STOP);
+                motor->move(MOTOR_RIGHT, MOTOR_BACK);
+            }
+            else if(direction == Direction::BACK_RIGHT){
+                motor->move(MOTOR_LEFT, MOTOR_BACK);
+                motor->move(MOTOR_RIGHT, MOTOR_STOP);
+            }
+            else if(direction == Direction::BACK_STRAIGHT){
+                motor->move(MOTOR_LEFT, MOTOR_BACK);
+                motor->move(MOTOR_RIGHT, MOTOR_BACK);
+            }
+            else
+                return false;
+            return true;
+        }
+        return false;
     }
 
-    enum class LOCKING_STATE{
+    enum class LockingState{
         OPEN, CLOSE
     };
 
-    void controlDoor(LOCKING_STATE open){
-        if(open == LOCKING_STATE::OPEN){
+    void controlDoor(LockingState open){
+        if(open == LockingState::OPEN){
             door->open();
         }
-        else if(open == LOCKING_STATE::CLOSE){
+        else if(open == LockingState::CLOSE){
             door->close();
         }
     }
 
-    LOCKING_STATE getDoorState(){
+    LockingState getDoorState(){
         if(door->isOpened())
-            return LOCKING_STATE::OPEN;
+            return LockingState::OPEN;
         else
-            return LOCKING_STATE::CLOSE;
+            return LockingState::CLOSE;
     }
 
-    void controlTrunk(LOCKING_STATE open){
-        if(open == LOCKING_STATE::OPEN){
-            
+    void controlTrunk(LockingState open){
+        if(open == LockingState::OPEN){
             trunk->open();
         }
-        else if(open == LOCKING_STATE::CLOSE){
+        else if(open == LockingState::CLOSE){
             
             trunk->close();
         }
     }
 
-    LOCKING_STATE isOpenedTrunk(){
+    LockingState getTrunkState(){
         if(trunk->isOpened())
-            return LOCKING_STATE::OPEN;
+            return LockingState::OPEN;
         else
-            return LOCKING_STATE::CLOSE;
+            return LockingState::CLOSE;
     }
 
     int isStarted(){ return started; }
@@ -610,15 +632,15 @@ protected:
                 return;
             }
             doorTime = millis();
-            if(car->getDoorState() == Car::LOCKING_STATE::OPEN){
+            if(car->getDoorState() == Car::LockingState::OPEN){
                 lcd.print("Close the door.", 3000);
-                car->controlDoor(Car::LOCKING_STATE::CLOSE);
-                car->controlTrunk(Car::LOCKING_STATE::CLOSE);
+                car->controlDoor(Car::LockingState::CLOSE);
+                car->controlTrunk(Car::LockingState::CLOSE);
             }
             else{
                 lcd.print("Open the door.", 3000);
-                car->controlDoor(Car::LOCKING_STATE::OPEN);
-                car->controlTrunk(Car::LOCKING_STATE::OPEN);
+                car->controlDoor(Car::LockingState::OPEN);
+                car->controlTrunk(Car::LockingState::OPEN);
             }
         }
     }
@@ -628,31 +650,58 @@ public:
     }
 };
 
+class BluetoothSerial{
+private:
+    SoftwareSerial *bluetoothSerial;
+public:
+    BluetoothSerial()
+    :bluetoothSerial(NULL)
+    {}
+    ~BluetoothSerial(){
+        if(bluetoothSerial != NULL)
+            delete bluetoothSerial;
+    }
+    void begin(int tx, int rx, int frequency){
+        bluetoothSerial = new SoftwareSerial(tx, rx);
+        bluetoothSerial->begin(frequency);
+    }
+    int available(){
+        return bluetoothSerial->available();
+    }
+    int read(){
+        int data = bluetoothSerial->read();
+        Serial.print("bt-read:");
+        Serial.println(data);
+        return data;
+    }
+    int write(unsigned byte){
+        int cnt = bluetoothSerial->write(byte);
+        Serial.print("bt-write:");
+        Serial.println(byte);
+        return cnt;
+    }
+};
 
 class Bluetooth{
 private:
-    SoftwareSerial *btSerial;
+    BluetoothSerial btSerial;
     Car *car;
+    bool remoteControlMode;
     int interpret();
+    void car_control(unsigned char code);
 public:
-    Bluetooth():btSerial(NULL), car(NULL) {}
+    Bluetooth():btSerial(), car(NULL), remoteControlMode(false) {}
     void begin(int pinTx, int pinRx, Car *car){
-        btSerial = new SoftwareSerial(pinTx, pinRx);
-        btSerial->begin(9600);
+        btSerial.begin(pinTx, pinRx, 9600);
         this->car = car;
-    }
-    ~Bluetooth(){
-        if(btSerial)
-            delete btSerial;
     }
     void sendData(unsigned char headerCode, unsigned char *dataArray=NULL);
     void receiveData(){
-        if(btSerial->available()){
+        if(btSerial.available()){
             unsigned char data;
             int i = 0;
             for(; i < DEFAULT_HEADER_LENGTH ; i++){
-                data = btSerial->read();
-                Serial.print(data);
+                data = btSerial.read();
                 if(data != defaultHeader[i]) //잘못된 데이터는 버린다.
                     return;
             }
@@ -664,26 +713,112 @@ public:
     }
 };
 
+void Bluetooth::car_control(unsigned char code){
+    if(!remoteControlMode)
+        return;
+    Car::Speed speed;
+    Car::Direction direction;
+    switch(code){
+        case C_STOP:
+            car->steer(Car::Direction::STOP, Car::Speed::STOP);
+            break;
+        case C_CAR_OFF:
+            car->off();
+            break;
+        case C_OPEN_DOOR:
+            if(car->getDoorState() != Car::LockingState::OPEN)
+                car->controlDoor(Car::LockingState::OPEN);
+            break;
+        case C_CLOSE_DOOR:
+            if(car->getDoorState() != Car::LockingState::CLOSE)
+                car->controlDoor(Car::LockingState::CLOSE);
+            break;
+        case C_OPEN_TRUNK:
+            if(car->getTrunkState() != Car::LockingState::OPEN)
+                car->controlTrunk(Car::LockingState::OPEN);
+            break;
+        case C_CLOSE_TRUNK:
+            if(car->getTrunkState() != Car::LockingState::CLOSE)
+                car->controlTrunk(Car::LockingState::CLOSE);
+            break;
+        default:
+            switch(code/10){
+                case 1:
+                    car->steer(Car::Direction::STOP, Car::Speed::STOP);
+                    return;
+                case 2:
+                    speed = Car::Speed::SLOW;
+                    break;
+                case 3:
+                    speed = Car::Speed::FAST;
+                    break;
+                default:
+                    return;
+            }
+            switch(code % 10){
+                case 1:
+                    direction = Car::Direction::FORWARD_RIGHT;
+                    break;
+                case 2:
+                    direction = Car::Direction::FORWARD_STRAIGHT;
+                    break;
+                case 3:
+                    direction = Car::Direction::FORWARD_LEFT;
+                    break;
+                case 5:
+                    direction = Car::Direction::BACK_LEFT;
+                    break;
+                case 6:
+                    direction = Car::Direction::BACK_STRAIGHT;
+                    break;
+                case 7:
+                    direction = Car::Direction::BACK_RIGHT;
+                    break;
+                default:
+                    return;
+            }
+            car->steer(direction, speed);
+            break;
+    }
+}
+
 int Bluetooth::interpret(){
-    unsigned char headerNumber = btSerial->read();
+    unsigned char headerNumber = btSerial.read();
+    unsigned char next;
     switch(headerNumber){
-        case HR_CAR_CONTROL:
-        //자동차 컨트롤
+        case RS_CARCTL:
+            next = btSerial.read();
+            if(next == C_REQ){
+                next = C_REQACK;
+                sendData(RS_CARCTL, &next);
+                Serial.println("Connected.");
+                lcd.print("remote control", "connected!", 5000);
+                remoteControlMode = true;
+            }
+            else{
+                car_control(next);
+            }
 			break;
-        case HR_REQUEST_START:
+        case R_REQON:
         //시동 요청
 			break;
-		case HR_ACCEPT_START:
+		case R_START:
         //시동 허가
 			break;
-		case HR_REQUEST_BTC:
+		case R_REQBC:
         //블루투스 연결 요청
 			break;
-		case HR_ASSIGN_ID:
+		case R_ASSIGN_ID:
         //자동차 ID 할당
 			break;
-		case HR_REQUEST_DEL_ID:
+		case R_DELETE_ID:
         //자동차 ID 제거 명령
+			break;
+        case R_REQLOCK:
+        //락/언락 요청
+			break;
+        case R_LOCK:
+        //락/언락 수행
 			break;
         default:
             return -1;
@@ -692,25 +827,43 @@ int Bluetooth::interpret(){
 }
 
 void Bluetooth::sendData(unsigned char headerCode, unsigned char *dataArray){
+    int i;
+    unsigned char data;
+    int dataArrayLength = 0;
     switch(headerCode){
-        case HS_REQUEST_AVAILABLE:
+        case RS_CARCTL:
+            dataArrayLength = 1;
+			break;
+        case S_REQON_AVAIL:
         //시동 요청이 올바른가
             break;
-        case HS_SEND_CAR_STATE:
+        case S_SEND_STATE:
         //시동상태 전송 요청
             break;
-        case HS_SEND_CAR_OFF:
+        case S_SEND_OFF:
         //시동꺼짐정보 전송 요청
             break;
-        case HS_BTC_SUCCESS:
+        case S_SUCBC:
         //블루투스 연결 성공
             break;
-        case HS_SAVED_ID:
+        case S_ASSIGN_ID_OK:
         //자동차 ID 할당 성공
             break;
-        case HS_DELETED_ID:
+        case S_DELETE_OK:
         //자동차 ID 제거 성공
             break;
+        case S_REQLOCK_AVAIL:
+        //락/언락 요청이 올바른가
+            break;
+        default:
+            return;
+    }
+    for(i = 0; i < DEFAULT_HEADER_LENGTH ; i++){
+        btSerial.write(defaultHeader[i]);
+    }
+    btSerial.write(headerCode);
+    for(i = 0 ; i < dataArrayLength ; i++){
+        btSerial.write(dataArray[i]);
     }
 }
 
@@ -726,7 +879,11 @@ void setup() {
     Serial.begin(9600);
     lcd.begin();
 
-    motor.attach(DEFAULT_SPEED, PIN_MOTOR_IN1, PIN_MOTOR_IN2, PIN_MOTOR_IN3, PIN_MOTOR_IN4, PIN_MOTOR_ENA, PIN_MOTOR_ENB);
+    motor.attach(
+        DEFAULT_SPEED, 
+        PIN_MOTOR_IN1, PIN_MOTOR_IN2, PIN_MOTOR_IN3, PIN_MOTOR_IN4, 
+        PIN_MOTOR_ENA, PIN_MOTOR_ENB
+        );
     door.attach(PIN_DOOR_SERVO);
     trunk.attach(PIN_TRUNK_SERVO);
     car.attach(PIN_START_CAR_OUT, &motor, &door, &trunk, &bluetooth);
