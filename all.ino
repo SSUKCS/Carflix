@@ -467,6 +467,39 @@ protected:
 
 class Bluetooth;
 
+class MoveTester: public Repeater{
+private:
+    Motor *motor;
+protected:
+    virtual void onStop() override{
+         motor->move(MOTOR_LEFT | MOTOR_RIGHT, MOTOR_STOP); 
+    }
+    virtual void onRepeat(int count) override{
+        switch(count % 6){
+            case 0:
+            case 1:
+                break;
+            case 2:
+                motor->move(MOTOR_LEFT | MOTOR_RIGHT, MOTOR_FORWARD);
+                break;
+            case 3:
+                motor->move(MOTOR_LEFT | MOTOR_RIGHT, MOTOR_STOP);
+                break;
+            case 4:
+                motor->move(MOTOR_LEFT | MOTOR_RIGHT, MOTOR_BACK);
+                break;
+            case 5:
+                motor->move(MOTOR_LEFT | MOTOR_RIGHT, MOTOR_STOP);
+                break;
+        }
+    }
+public:
+    MoveTester(unsigned long term):Repeater(term){}
+    void setMotor(Motor *motor){
+        this->motor = motor;
+    }
+};
+
 class Car{
 private:
     int pinStartOut;
@@ -474,8 +507,9 @@ private:
     Motor *motor;
     Door *door, *trunk;
     Bluetooth *bluetooth;
+    MoveTester moveTester;
     
-    void lightOnStart(){
+    void blinkLight(){
         digitalWrite(pinStartOut, HIGH);
         delay(100);
         digitalWrite(pinStartOut, LOW);
@@ -493,7 +527,7 @@ private:
 
 public:
     Car()
-    : pinStartOut(-1), started(false), motor(NULL), door(NULL), trunk(NULL), bluetooth(NULL){ }
+    : pinStartOut(-1), started(false), motor(NULL), door(NULL), trunk(NULL), bluetooth(NULL), moveTester(1000){ }
 
     void attach(int pinStartOut, Motor *motor, Door *door, Door *trunk, Bluetooth *bluetooth){
         this->door = door;
@@ -501,19 +535,31 @@ public:
         this->pinStartOut = pinStartOut;
         this->motor = motor;
         this->bluetooth = bluetooth;
+        moveTester.setMotor(motor);
         pinMode(pinStartOut, OUTPUT);
     }
 
     void on(){
-        started = true; // 시동 상태 기록
-        lcd.print("Start Car...", 5000);
-        lightOnStart();
+        if(!started){
+            started = true; // 시동 상태 기록
+            lcd.print("Start Car...", 5000);
+            blinkLight();
+            moveTester.start();
+        }
     }
 
     void off(){
-        started = false; // 시동 상태 기록
-        lcd.print("Engine off...", 5000);
-        turnOffLight();
+        if(started){
+            started = false; // 시동 상태 기록
+            lcd.print("Engine off...", 5000);
+            moveTester.stop();
+            turnOffLight();
+        }
+    }
+
+    void stopShowcase(){
+        if(moveTester.isStarted())
+            moveTester.stop();
     }
 
     enum class Speed{
@@ -628,9 +674,8 @@ protected:
             car->off();
         }
         else{
-            if(doorTime + 300 > millis()){
+            if(doorTime + 300 > millis())
                 return;
-            }
             doorTime = millis();
             if(car->getDoorState() == Car::LockingState::OPEN){
                 lcd.print("Close the door.", 3000);
@@ -742,6 +787,7 @@ void Bluetooth::car_control(unsigned char code){
                 car->controlTrunk(Car::LockingState::CLOSE);
             break;
         default:
+            car->stopShowcase();
             switch(code/10){
                 case 1:
                     car->steer(Car::Direction::STOP, Car::Speed::STOP);
