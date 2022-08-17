@@ -7,12 +7,19 @@
 #include <limits.h>
 
 //eeprom에 쓸 데이터 크기(바이트 단위)
-#define CAR_ID_LENGTH 64
+#define CAR_ID_LENGTH 16
+#define MB_ID_LENGTH 16
+#define VS_STARTUP_INFORMATION_LENGTH 50
+unsigned char vs_startup_information[VS_STARTUP_INFORMATION_LENGTH] = {0};
 
 //모터 스피드 세팅. 실질적으로 130~255 사이의 값을 줘야 움직임
 #define DEFAULT_SPEED 255
 #define HIGH_SPEED 255
 #define LOW_SPEED 255
+
+//블루투스 시동상태 전송 간격
+#define SENDING_ON_TERM 2500
+#define SENDING_OFF_TERM 2500
 
 //블루투스 프로토콜 헤더
 #define DEFAULT_HEADER_LENGTH 2
@@ -28,25 +35,30 @@ const unsigned char defaultHeader[DEFAULT_HEADER_LENGTH] = {
 #define R_REQBC 65
 #define R_ASSIGN_ID 68
 #define R_DELETE_ID 72
-#define R_REQLOCK 74
-#define R_LOCK 76
+#define R_REQCONT 74
+#define R_CONT 76
+#define R_OFF_OK 81
 
 #define S_REQON_AVAIL 58
-#define S_SEND_STATE 60
-#define S_SEND_OFF 63
+#define S_REQSEND_STATE 60
+#define S_REQSEND_OFF 63
 #define S_SUCBC 66
 #define S_ASSIGN_ID_OK 69
 #define S_DELETE_OK 73
-#define S_REQLOCK_AVAIL 75
+#define S_REQCONT_AVAIL 75
+#define S_DELETE_FAILED 80
 
 #define C_STOP 10
 #define C_REQ 105
 #define C_REQACK 106
-#define C_OPEN_TRUNK 103
-#define C_CLOSE_TRUNK 104
-#define C_OPEN_DOOR 101
-#define C_CLOSE_DOOR 102
+#define C_OPEN_TRUNK 3
+#define C_CLOSE_TRUNK 4
+#define C_OPEN_DOOR 1
+#define C_CLOSE_DOOR 2
 #define C_CAR_OFF 100
+
+#define EXIST_CR_ID 12
+#define NOT_EXIST_CR_ID 11
 
 
 //핀 세팅
@@ -73,17 +85,33 @@ public:
         if(EEPROM.read(0) & ROM_NEW_DEVICE)
             EEPROM.write(0, 0);
     }
-    unsigned char getRomState(){
-        return EEPROM.read(0);
+    bool isCarIdExist(){
+        return (bool)(EEPROM.read(0) & ROM_SET_CAR_ID);
     }
-    void getCarID(unsigned char *dst){
-        for(int i = 0 ; i < CAR_ID_LENGTH ; i++)
-            dst[i] = EEPROM.read(1 + i);
+    void getCarId(unsigned char *dst){
+        int i;
+        if(isCarIdExist()){
+            for(i = 0 ; i < CAR_ID_LENGTH ; i++)
+                dst[i] = EEPROM.read(1 + i);
+        }
+        else{
+            for(i = 0 ; i < CAR_ID_LENGTH ; i++)
+                dst[i] = 255;
+        }
     }
     void updateCarId(unsigned char* data){
         EEPROM.update(0, EEPROM.read(0) | ROM_SET_CAR_ID);
         for(int i = 0 ; i < CAR_ID_LENGTH ; i++)
             EEPROM.update(1+i, data[i]);
+    }
+    bool idEquals(unsigned char *data){
+        if(!isCarIdExist())
+            return false;
+        for(int i = 0 ; i < CAR_ID_LENGTH ; i++){
+            if(data[i] != EEPROM.read(1+i))
+                return false;
+        }
+        return true;
     }
     void format(){
         EEPROM.update(0, 0);
@@ -458,10 +486,12 @@ protected:
         lcd.print("eeprom", "reset complete", 5000);
     }
     virtual void onShortPushed() override{
-        if(rom.getRomState() & ROM_SET_CAR_ID)
+        if(rom.isCarIdExist()){
             lcd.print("ID assigned!", "", 2000);
-        else
+        }
+        else{
             lcd.print("ID not assigned", "...", 2000);
+        }
     }
 };
 
@@ -500,6 +530,30 @@ public:
     }
 };
 
+class CarOnSender: public Repeater{
+private:
+    Bluetooth *bluetooth;
+protected:
+    virtual void onRepeat(int count) override;
+public:
+    CarOnSender(unsigned long term):Repeater(term){}
+    void setBluetooth(Bluetooth *bluetooth){
+        this->bluetooth = bluetooth;
+    }
+};
+
+class CarOffSender: public Repeater{
+private:
+    Bluetooth *bluetooth;
+protected:
+    virtual void onRepeat(int count) override;
+public:
+    CarOffSender(unsigned long term):Repeater(term){}
+    void setBluetooth(Bluetooth *bluetooth){
+        this->bluetooth = bluetooth;
+    }
+};
+
 class Car{
 private:
     int pinStartOut;
@@ -508,6 +562,9 @@ private:
     Door *door, *trunk;
     Bluetooth *bluetooth;
     MoveTester moveTester;
+    CarOnSender carOnSender;
+    CarOffSender carOffSender;
+    bool remoteMode;
     
     void blinkLight(){
         digitalWrite(pinStartOut, HIGH);
@@ -527,7 +584,8 @@ private:
 
 public:
     Car()
-    : pinStartOut(-1), started(false), motor(NULL), door(NULL), trunk(NULL), bluetooth(NULL), moveTester(1000){ }
+    : pinStartOut(-1), started(false), motor(NULL), door(NULL), trunk(NULL), bluetooth(NULL), moveTester(1000),
+    remoteMode(false), carOnSender(SENDING_ON_TERM), carOffSender(SENDING_OFF_TERM){ }
 
     void attach(int pinStartOut, Motor *motor, Door *door, Door *trunk, Bluetooth *bluetooth){
         this->door = door;
@@ -536,16 +594,31 @@ public:
         this->motor = motor;
         this->bluetooth = bluetooth;
         moveTester.setMotor(motor);
+        carOnSender.setBluetooth(bluetooth);
+        carOffSender.setBluetooth(bluetooth);
         pinMode(pinStartOut, OUTPUT);
     }
 
-    void on(){
+    bool on(){
         if(!started){
             started = true; // 시동 상태 기록
             lcd.print("Start Car...", 5000);
             blinkLight();
             moveTester.start();
+            return true;
         }
+        return false;
+    }
+
+    void remoteOn(){
+        if(on()){
+            carOnSender.start();
+            remoteMode = true;
+        }
+    }
+
+    void stopSendOff(){
+        carOffSender.stop();
     }
 
     void off(){
@@ -554,6 +627,11 @@ public:
             lcd.print("Engine off...", 5000);
             moveTester.stop();
             turnOffLight();
+            if(remoteMode){
+                carOnSender.stop();
+                carOffSender.start();
+                remoteMode=false;
+            }
         }
     }
 
@@ -713,7 +791,11 @@ public:
     int available(){
         return bluetoothSerial->available();
     }
-    int read(){
+    int read(boolean withAvail=true){
+        if(withAvail){
+            while(available() <= 0)
+                delay(50);
+        }
         int data = bluetoothSerial->read();
         Serial.print("bt-read:");
         Serial.println(data);
@@ -732,29 +814,34 @@ private:
     BluetoothSerial btSerial;
     Car *car;
     bool remoteControlMode;
-    int interpret();
+    bool interpret();
     void car_control(unsigned char code);
+    unsigned char curData[2];
+    int curIndex;
 public:
-    Bluetooth():btSerial(), car(NULL), remoteControlMode(false) {}
+    Bluetooth():btSerial(), car(NULL), remoteControlMode(false), curIndex(0) {}
     void begin(int pinTx, int pinRx, Car *car){
         btSerial.begin(pinTx, pinRx, 9600);
         this->car = car;
     }
     void sendData(unsigned char headerCode, unsigned char *dataArray=NULL);
-    void receiveData(){
-        if(btSerial.available()){
-            unsigned char data;
-            int i = 0;
-            for(; i < DEFAULT_HEADER_LENGTH ; i++){
-                data = btSerial.read();
-                if(data != defaultHeader[i]) //잘못된 데이터는 버린다.
-                    return;
+    bool receiveData(){
+        unsigned char data;
+        int i;
+        int avail = btSerial.available();
+        //Serial.print("avail:");
+        //Serial.println(avail);
+        for(i = 0; i < avail ; i++){
+            curData[curIndex] = btSerial.read(false);
+            if(curData[curIndex] != defaultHeader[curIndex]){ //잘못된 데이터는 버린다.
+                curIndex = 0;
+                return false;
             }
-            if(i < DEFAULT_HEADER_LENGTH)
-                return;
-            //올바른 데이터인 경우
-            interpret();
+            if(++curIndex >= 2){
+                return interpret();
+            }
         }
+        //올바른 데이터인 경우
     }
 };
 
@@ -828,9 +915,11 @@ void Bluetooth::car_control(unsigned char code){
     }
 }
 
-int Bluetooth::interpret(){
+bool Bluetooth::interpret(){
     unsigned char headerNumber = btSerial.read();
     unsigned char next;
+    unsigned char temp[60];
+    int i;
     switch(headerNumber){
         case RS_CARCTL:
             next = btSerial.read();
@@ -846,30 +935,84 @@ int Bluetooth::interpret(){
             }
 			break;
         case R_REQON:
-        //시동 요청
+            rom.getCarId(temp);
+            for(i = 0 ; i < MB_ID_LENGTH ; i++)
+                temp[CAR_ID_LENGTH+i] = btSerial.read();
+            sendData(S_REQCONT_AVAIL, temp);
 			break;
 		case R_START:
-        //시동 허가
+            for(i = 0 ; i < VS_STARTUP_INFORMATION_LENGTH ; i++)
+                vs_startup_information[i] = btSerial.read();
+            car->remoteOn();
 			break;
+        case R_OFF_OK:
+            car->stopSendOff();
+            break;
 		case R_REQBC:
-        //블루투스 연결 요청
+            if(rom.isCarIdExist())
+                next = EXIST_CR_ID;
+            else
+                next = NOT_EXIST_CR_ID;
+            sendData(S_SUCBC, &next);
 			break;
 		case R_ASSIGN_ID:
-        //자동차 ID 할당
+            for(i = 0 ; i < CAR_ID_LENGTH ; i++)
+                temp[i] = btSerial.read();
+            temp[i]='\0';
+            Serial.print("assignId:");
+            Serial.println((char*)temp);
+            rom.updateCarId(temp);
+            sendData(S_ASSIGN_ID_OK);
 			break;
 		case R_DELETE_ID:
-        //자동차 ID 제거 명령
+            for(i = 0 ; i < CAR_ID_LENGTH ; i++)
+                temp[i] = btSerial.read();
+            temp[i]='\0';
+            Serial.print("deleteId:");
+            Serial.println((char*)temp);
+
+            if(rom.idEquals(temp)){
+                rom.format();
+                Serial.println("formatted.");
+                sendData(S_DELETE_OK);
+            }
+            else{
+                Serial.println("different.");
+                sendData(S_DELETE_FAILED);
+            }
 			break;
-        case R_REQLOCK:
-        //락/언락 요청
+        case R_REQCONT:
+            rom.getCarId(temp);
+            for(i = 0 ; i < MB_ID_LENGTH ; i++)
+                temp[CAR_ID_LENGTH+i] = btSerial.read();
+            temp[CAR_ID_LENGTH+i] = btSerial.read();    
+            sendData(S_REQCONT_AVAIL, temp);
 			break;
-        case R_LOCK:
-        //락/언락 수행
+        case R_CONT:
+            next = btSerial.read();
+            switch(next){
+                case C_OPEN_DOOR:
+                    if(car->getDoorState() != Car::LockingState::OPEN)
+                        car->controlDoor(Car::LockingState::OPEN);
+                    break;
+                case C_CLOSE_DOOR:
+                    if(car->getDoorState() != Car::LockingState::CLOSE)
+                        car->controlDoor(Car::LockingState::CLOSE);
+                    break;
+                case C_OPEN_TRUNK:
+                    if(car->getTrunkState() != Car::LockingState::OPEN)
+                        car->controlTrunk(Car::LockingState::OPEN);
+                    break;
+                case C_CLOSE_TRUNK:
+                    if(car->getTrunkState() != Car::LockingState::CLOSE)
+                        car->controlTrunk(Car::LockingState::CLOSE);
+                    break;
+            }
 			break;
         default:
-            return -1;
+            return false;
     }
-    return 0;
+    return true;
 }
 
 void Bluetooth::sendData(unsigned char headerCode, unsigned char *dataArray){
@@ -881,25 +1024,28 @@ void Bluetooth::sendData(unsigned char headerCode, unsigned char *dataArray){
             dataArrayLength = 1;
 			break;
         case S_REQON_AVAIL:
-        //시동 요청이 올바른가
+            dataArrayLength = CAR_ID_LENGTH + MB_ID_LENGTH;
             break;
-        case S_SEND_STATE:
-        //시동상태 전송 요청
+        case S_REQSEND_STATE:
+            dataArrayLength = VS_STARTUP_INFORMATION_LENGTH;
             break;
-        case S_SEND_OFF:
-        //시동꺼짐정보 전송 요청
+        case S_REQSEND_OFF:
+            dataArrayLength = VS_STARTUP_INFORMATION_LENGTH;
             break;
         case S_SUCBC:
-        //블루투스 연결 성공
+            dataArrayLength = 1;
             break;
         case S_ASSIGN_ID_OK:
-        //자동차 ID 할당 성공
+            dataArrayLength = 0;
             break;
         case S_DELETE_OK:
-        //자동차 ID 제거 성공
+            dataArrayLength = 0;
             break;
-        case S_REQLOCK_AVAIL:
-        //락/언락 요청이 올바른가
+        case S_DELETE_FAILED:
+            dataArrayLength = 0;
+            break;
+        case S_REQCONT_AVAIL:
+            dataArrayLength = CAR_ID_LENGTH + MB_ID_LENGTH + 1;
             break;
         default:
             return;
@@ -911,6 +1057,16 @@ void Bluetooth::sendData(unsigned char headerCode, unsigned char *dataArray){
     for(i = 0 ; i < dataArrayLength ; i++){
         btSerial.write(dataArray[i]);
     }
+}
+
+void CarOnSender::onRepeat(int count){
+    bluetooth->sendData(S_REQSEND_STATE, vs_startup_information);
+    Serial.println("send on message");
+}
+
+void CarOffSender::onRepeat(int count){
+    bluetooth->sendData(S_REQSEND_OFF, vs_startup_information);
+    Serial.println("send off message");
 }
 
 Bluetooth bluetooth;
