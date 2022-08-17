@@ -10,7 +10,7 @@
 #define CAR_ID_LENGTH 16
 #define MB_ID_LENGTH 16
 #define VS_STARTUP_INFORMATION_LENGTH 50
-unsigned char vs_startup_information[VS_STARTUP_INFORMATION_LENGTH] = {0};
+unsigned char transmissionId[VS_STARTUP_INFORMATION_LENGTH + CAR_ID_LENGTH] = {0};
 
 //모터 스피드 세팅. 실질적으로 130~255 사이의 값을 줘야 움직임
 #define DEFAULT_SPEED 255
@@ -809,13 +809,14 @@ public:
     }
 };
 
+
 class Bluetooth{
 private:
     BluetoothSerial btSerial;
     Car *car;
     bool remoteControlMode;
     bool interpret();
-    void car_control(unsigned char code);
+    void carControl(unsigned char code);
     unsigned char curData[2];
     int curIndex;
 public:
@@ -845,7 +846,7 @@ public:
     }
 };
 
-void Bluetooth::car_control(unsigned char code){
+void Bluetooth::carControl(unsigned char code){
     if(!remoteControlMode)
         return;
     Car::Speed speed;
@@ -931,7 +932,7 @@ bool Bluetooth::interpret(){
                 remoteControlMode = true;
             }
             else{
-                car_control(next);
+                carControl(next);
             }
 			break;
         case R_REQON:
@@ -942,7 +943,8 @@ bool Bluetooth::interpret(){
 			break;
 		case R_START:
             for(i = 0 ; i < VS_STARTUP_INFORMATION_LENGTH ; i++)
-                vs_startup_information[i] = btSerial.read();
+                transmissionId[i] = btSerial.read();
+            rom.getCarId(transmissionId + VS_STARTUP_INFORMATION_LENGTH);
             car->remoteOn();
 			break;
         case R_OFF_OK:
@@ -1027,10 +1029,10 @@ void Bluetooth::sendData(unsigned char headerCode, unsigned char *dataArray){
             dataArrayLength = CAR_ID_LENGTH + MB_ID_LENGTH;
             break;
         case S_REQSEND_STATE:
-            dataArrayLength = VS_STARTUP_INFORMATION_LENGTH;
+            dataArrayLength = VS_STARTUP_INFORMATION_LENGTH + CAR_ID_LENGTH;
             break;
         case S_REQSEND_OFF:
-            dataArrayLength = VS_STARTUP_INFORMATION_LENGTH;
+            dataArrayLength = VS_STARTUP_INFORMATION_LENGTH + CAR_ID_LENGTH;
             break;
         case S_SUCBC:
             dataArrayLength = 1;
@@ -1060,12 +1062,12 @@ void Bluetooth::sendData(unsigned char headerCode, unsigned char *dataArray){
 }
 
 void CarOnSender::onRepeat(int count){
-    bluetooth->sendData(S_REQSEND_STATE, vs_startup_information);
+    bluetooth->sendData(S_REQSEND_STATE, transmissionId);
     Serial.println("send on message");
 }
 
 void CarOffSender::onRepeat(int count){
-    bluetooth->sendData(S_REQSEND_OFF, vs_startup_information);
+    bluetooth->sendData(S_REQSEND_OFF, transmissionId);
     Serial.println("send off message");
 }
 
