@@ -612,6 +612,7 @@ public:
 
     void remoteOn(){
         if(on()){
+            carOffSender.stop();
             carOnSender.start();
             remoteMode = true;
         }
