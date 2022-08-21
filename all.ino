@@ -835,11 +835,14 @@ public:
         //Serial.println(avail);
         for(i = 0; i < avail ; i++){
             curData[curIndex] = btSerial.read(false);
+            Serial.print("receiveData:");
+            Serial.println(curIndex);
             if(curData[curIndex] != defaultHeader[curIndex]){ //잘못된 데이터는 버린다.
                 curIndex = 0;
                 return false;
             }
             if(++curIndex >= 2){
+                curIndex = 0;
                 return interpret();
             }
         }
@@ -952,6 +955,7 @@ bool Bluetooth::interpret(){
             car->stopSendOff();
             break;
 		case R_REQBC:
+            Serial.println("got reqbc");
             if(rom.isCarIdExist())
                 next = EXIST_CR_ID;
             else
@@ -965,6 +969,7 @@ bool Bluetooth::interpret(){
             Serial.print("assignId:");
             Serial.println((char*)temp);
             rom.updateCarId(temp);
+            lcd.print("car id assigned.", 4000);
             sendData(S_ASSIGN_ID_OK);
 			break;
 		case R_DELETE_ID:
@@ -977,6 +982,7 @@ bool Bluetooth::interpret(){
             if(rom.idEquals(temp)){
                 rom.format();
                 Serial.println("formatted.");
+                lcd.print("car id deleted.", 4000);
                 sendData(S_DELETE_OK);
             }
             else{
