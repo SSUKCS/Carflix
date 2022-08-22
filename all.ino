@@ -11,6 +11,9 @@
 #define MB_ID_LENGTH 16
 
 unsigned char transmissionId[CAR_ID_LENGTH] = {0};
+unsigned char curData[300];
+int curLength;
+unsigned char curHeaderCode;
 
 //모터 스피드 세팅. 실질적으로 130~255 사이의 값을 줘야 움직임
 #define DEFAULT_SPEED 255
@@ -38,6 +41,7 @@ const unsigned char defaultHeader[DEFAULT_HEADER_LENGTH] = {
 #define R_REQCONT 74
 #define R_CONT 76
 #define R_OFF_OK 81
+#define R_RESEND 21
 
 #define S_REQON_AVAIL 58
 #define S_REQSEND_STATE 60
@@ -923,7 +927,7 @@ void Bluetooth::carControl(unsigned char code){
 bool Bluetooth::interpret(){
     unsigned char headerNumber = btSerial.read();
     unsigned char next;
-    unsigned char temp[60];
+    unsigned char temp[100];
     int i;
     switch(headerNumber){
         case RS_CARCTL:
@@ -943,6 +947,7 @@ bool Bluetooth::interpret(){
             rom.getCarId(temp);
             for(i = 0 ; i < MB_ID_LENGTH ; i++)
                 temp[CAR_ID_LENGTH+i] = btSerial.read();
+            temp[CAR_ID_LENGTH+i] = 1;
             sendData(S_REQON_AVAIL, temp);
             Serial.println("send reqonavail");
 			break;
@@ -1027,6 +1032,10 @@ bool Bluetooth::interpret(){
                     break;
             }
 			break;
+        case R_RESEND:
+            Serial.println("resend");
+            sendData(R_RESEND, NULL);
+            break;
         default:
             return false;
     }
@@ -1036,13 +1045,14 @@ bool Bluetooth::interpret(){
 void Bluetooth::sendData(unsigned char headerCode, unsigned char *dataArray){
     int i;
     unsigned char data;
+    bool resend = false;
     int dataArrayLength = 0;
     switch(headerCode){
         case RS_CARCTL:
             dataArrayLength = 1;
 			break;
         case S_REQON_AVAIL:
-            dataArrayLength = CAR_ID_LENGTH + MB_ID_LENGTH;
+            dataArrayLength = CAR_ID_LENGTH + MB_ID_LENGTH + 1;
             break;
         case S_REQSEND_STATE:
             dataArrayLength = CAR_ID_LENGTH;
@@ -1065,15 +1075,35 @@ void Bluetooth::sendData(unsigned char headerCode, unsigned char *dataArray){
         case S_REQCONT_AVAIL:
             dataArrayLength = CAR_ID_LENGTH + MB_ID_LENGTH + 1;
             break;
+        case R_RESEND:
+            resend=true;
+            dataArrayLength = curLength;
+            headerCode = curHeaderCode;
+            dataArray = curData;
+            break;
         default:
             return;
     }
+    if(!resend){
+        curLength = dataArrayLength;
+        curHeaderCode = headerCode;
+    }
+    
     for(i = 0; i < DEFAULT_HEADER_LENGTH ; i++){
         btSerial.write(defaultHeader[i]);
     }
     btSerial.write(headerCode);
-    for(i = 0 ; i < dataArrayLength ; i++){
-        btSerial.write(dataArray[i]);
+    if(!resend){
+        for(i = 0 ; i < dataArrayLength ; i++){
+            curData[i] = dataArray[i];
+            btSerial.write(dataArray[i]);
+        }
+    }
+    else{
+        for(i = 0 ; i < dataArrayLength ; i++){
+            curData[i] = dataArray[i];
+            btSerial.write(dataArray[i]);
+        }
     }
 }
 
