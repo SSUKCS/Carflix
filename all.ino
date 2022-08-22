@@ -9,8 +9,8 @@
 //eeprom에 쓸 데이터 크기(바이트 단위)
 #define CAR_ID_LENGTH 16
 #define MB_ID_LENGTH 16
-#define VS_STARTUP_INFORMATION_LENGTH 50
-unsigned char transmissionId[VS_STARTUP_INFORMATION_LENGTH + CAR_ID_LENGTH] = {0};
+
+unsigned char transmissionId[CAR_ID_LENGTH] = {0};
 
 //모터 스피드 세팅. 실질적으로 130~255 사이의 값을 줘야 움직임
 #define DEFAULT_SPEED 255
@@ -946,9 +946,7 @@ bool Bluetooth::interpret(){
             sendData(S_REQCONT_AVAIL, temp);
 			break;
 		case R_START:
-            for(i = 0 ; i < VS_STARTUP_INFORMATION_LENGTH ; i++)
-                transmissionId[i] = btSerial.read();
-            rom.getCarId(transmissionId + VS_STARTUP_INFORMATION_LENGTH);
+            rom.getCarId(transmissionId);
             car->remoteOn();
 			break;
         case R_OFF_OK:
@@ -996,25 +994,35 @@ bool Bluetooth::interpret(){
                 temp[CAR_ID_LENGTH+i] = btSerial.read();
             temp[CAR_ID_LENGTH+i] = btSerial.read();    
             sendData(S_REQCONT_AVAIL, temp);
+            Serial.println("send cont avail.");
 			break;
         case R_CONT:
             next = btSerial.read();
+            Serial.println("got cont.");
             switch(next){
                 case C_OPEN_DOOR:
-                    if(car->getDoorState() != Car::LockingState::OPEN)
+                    if(car->getDoorState() != Car::LockingState::OPEN){
                         car->controlDoor(Car::LockingState::OPEN);
+                        lcd.print("Open the door.", 3000);
+                    }
                     break;
                 case C_CLOSE_DOOR:
-                    if(car->getDoorState() != Car::LockingState::CLOSE)
+                    if(car->getDoorState() != Car::LockingState::CLOSE){
                         car->controlDoor(Car::LockingState::CLOSE);
+                        lcd.print("Close the door.", 3000);
+                    }
                     break;
                 case C_OPEN_TRUNK:
-                    if(car->getTrunkState() != Car::LockingState::OPEN)
+                    if(car->getTrunkState() != Car::LockingState::OPEN){
                         car->controlTrunk(Car::LockingState::OPEN);
+                        lcd.print("Open the trunk.", 3000);
+                    }
                     break;
                 case C_CLOSE_TRUNK:
-                    if(car->getTrunkState() != Car::LockingState::CLOSE)
+                    if(car->getTrunkState() != Car::LockingState::CLOSE){
                         car->controlTrunk(Car::LockingState::CLOSE);
+                        lcd.print("Close the trunk.", 3000);
+                    }
                     break;
             }
 			break;
@@ -1036,10 +1044,10 @@ void Bluetooth::sendData(unsigned char headerCode, unsigned char *dataArray){
             dataArrayLength = CAR_ID_LENGTH + MB_ID_LENGTH;
             break;
         case S_REQSEND_STATE:
-            dataArrayLength = VS_STARTUP_INFORMATION_LENGTH + CAR_ID_LENGTH;
+            dataArrayLength = CAR_ID_LENGTH;
             break;
         case S_REQSEND_OFF:
-            dataArrayLength = VS_STARTUP_INFORMATION_LENGTH + CAR_ID_LENGTH;
+            dataArrayLength = CAR_ID_LENGTH;
             break;
         case S_SUCBC:
             dataArrayLength = 1;
