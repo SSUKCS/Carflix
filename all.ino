@@ -943,7 +943,8 @@ bool Bluetooth::interpret(){
             rom.getCarId(temp);
             for(i = 0 ; i < MB_ID_LENGTH ; i++)
                 temp[CAR_ID_LENGTH+i] = btSerial.read();
-            sendData(S_REQCONT_AVAIL, temp);
+            sendData(S_REQON_AVAIL, temp);
+            Serial.println("send reqonavail");
 			break;
 		case R_START:
             rom.getCarId(transmissionId);
