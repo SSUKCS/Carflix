@@ -6,14 +6,14 @@
 #include <string.h>
 #include <limits.h>
 
+//모터 작동을 안하게 하려면 주석처리
+//#define WORK_MOTOR
+
 //eeprom에 쓸 데이터 크기(바이트 단위)
 #define CAR_ID_LENGTH 16
 #define MB_ID_LENGTH 16
 
 unsigned char transmissionId[CAR_ID_LENGTH] = {0};
-unsigned char curData[300];
-int curLength;
-unsigned char curHeaderCode;
 
 //모터 스피드 세팅. 실질적으로 130~255 사이의 값을 줘야 움직임
 #define DEFAULT_SPEED 255
@@ -505,6 +505,7 @@ class MoveTester: public Repeater{
 private:
     Motor *motor;
 protected:
+#ifdef WORK_MOTOR
     virtual void onStop() override{
          motor->move(MOTOR_LEFT | MOTOR_RIGHT, MOTOR_STOP); 
     }
@@ -527,6 +528,9 @@ protected:
                 break;
         }
     }
+#else
+    virtual void onRepeat(int count) override{    }
+#endif
 public:
     MoveTester(unsigned long term):Repeater(term){}
     void setMotor(Motor *motor){
@@ -835,12 +839,8 @@ public:
         unsigned char data;
         int i;
         int avail = btSerial.available();
-        //Serial.print("avail:");
-        //Serial.println(avail);
         for(i = 0; i < avail ; i++){
             curData[curIndex] = btSerial.read(false);
-            Serial.print("receiveData:");
-            Serial.println(curIndex);
             if(curData[curIndex] != defaultHeader[curIndex]){ //잘못된 데이터는 버린다.
                 curIndex = 0;
                 return false;
@@ -1032,10 +1032,6 @@ bool Bluetooth::interpret(){
                     break;
             }
 			break;
-        case R_RESEND:
-            Serial.println("resend");
-            sendData(R_RESEND, NULL);
-            break;
         default:
             return false;
     }
@@ -1045,7 +1041,6 @@ bool Bluetooth::interpret(){
 void Bluetooth::sendData(unsigned char headerCode, unsigned char *dataArray){
     int i;
     unsigned char data;
-    bool resend = false;
     int dataArrayLength = 0;
     switch(headerCode){
         case RS_CARCTL:
@@ -1075,36 +1070,19 @@ void Bluetooth::sendData(unsigned char headerCode, unsigned char *dataArray){
         case S_REQCONT_AVAIL:
             dataArrayLength = CAR_ID_LENGTH + MB_ID_LENGTH + 1;
             break;
-        case R_RESEND:
-            resend=true;
-            dataArrayLength = curLength;
-            headerCode = curHeaderCode;
-            dataArray = curData;
-            break;
         default:
             return;
-    }
-    if(!resend){
-        curLength = dataArrayLength;
-        curHeaderCode = headerCode;
     }
     
     for(i = 0; i < DEFAULT_HEADER_LENGTH ; i++){
         btSerial.write(defaultHeader[i]);
     }
     btSerial.write(headerCode);
-    if(!resend){
-        for(i = 0 ; i < dataArrayLength ; i++){
-            curData[i] = dataArray[i];
-            btSerial.write(dataArray[i]);
-        }
+    for(i = 0 ; i < dataArrayLength ; i++){
+        curData[i] = dataArray[i];
+        btSerial.write(dataArray[i]);
     }
-    else{
-        for(i = 0 ; i < dataArrayLength ; i++){
-            curData[i] = dataArray[i];
-            btSerial.write(dataArray[i]);
-        }
-    }
+    delay(400);
 }
 
 void CarOnSender::onRepeat(int count){
@@ -1142,7 +1120,6 @@ void setup() {
     startBtn.attach(PIN_START_CAR_BTN, 2000);
     startBtn.setCar(&car);
     bluetooth.begin(PIN_BLUETOOTH_RX, PIN_BLUETOOTH_TX, &car);
-    
     lcd.setDefaultMessage("Carflix", "is now ready");
     lcd.print("Device Boot", "Complete!", 10000);
 }
