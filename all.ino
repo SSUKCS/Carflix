@@ -765,14 +765,16 @@ protected:
                 return;
             doorTime = millis();
             if(car->getDoorState() == Car::LockingState::OPEN){
-                lcd.print("Close the door.", 3000);
+                lcd.print("Close the door", "and trunk", 3000);
                 car->controlDoor(Car::LockingState::CLOSE);
-                car->controlTrunk(Car::LockingState::CLOSE);
+                if(car->getTrunkState() == Car::LockingState::OPEN)
+                    car->controlTrunk(Car::LockingState::CLOSE);
             }
             else{
-                lcd.print("Open the door.", 3000);
+                lcd.print("Open the door.", "and trunk", 3000);
                 car->controlDoor(Car::LockingState::OPEN);
-                car->controlTrunk(Car::LockingState::OPEN);
+                if(car->getTrunkState() == Car::LockingState::CLOSE)
+                    car->controlTrunk(Car::LockingState::OPEN);
             }
         }
     }
