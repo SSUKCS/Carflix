@@ -771,7 +771,7 @@ protected:
                     car->controlTrunk(Car::LockingState::CLOSE);
             }
             else{
-                lcd.print("Open the door.", "and trunk", 3000);
+                lcd.print("Open the door", "and trunk", 3000);
                 car->controlDoor(Car::LockingState::OPEN);
                 if(car->getTrunkState() == Car::LockingState::CLOSE)
                     car->controlTrunk(Car::LockingState::OPEN);
@@ -845,10 +845,12 @@ public:
             curData[curIndex] = btSerial.read(false);
             if(curData[curIndex] != defaultHeader[curIndex]){ //잘못된 데이터는 버린다.
                 curIndex = 0;
+                Serial.println("wrong case");
                 return false;
             }
             if(++curIndex >= 2){
                 curIndex = 0;
+                Serial.println("correct case:");
                 return interpret();
             }
         }
@@ -927,7 +929,7 @@ void Bluetooth::carControl(unsigned char code){
 }
 
 bool Bluetooth::interpret(){
-    unsigned char headerNumber = btSerial.read();
+    unsigned char headerNumber = btSerial.read(false);
     unsigned char next;
     unsigned char temp[100];
     int i;
@@ -1052,10 +1054,10 @@ void Bluetooth::sendData(unsigned char headerCode, unsigned char *dataArray){
             dataArrayLength = CAR_ID_LENGTH + MB_ID_LENGTH + 1;
             break;
         case S_REQSEND_STATE:
-            dataArrayLength = CAR_ID_LENGTH;
+            dataArrayLength = 0;
             break;
         case S_REQSEND_OFF:
-            dataArrayLength = CAR_ID_LENGTH;
+            dataArrayLength = 0;
             break;
         case S_SUCBC:
             dataArrayLength = 1;
@@ -1132,6 +1134,5 @@ void loop() {
     lcd.update();
     reserver.update();
     bluetooth.receiveData();
-    delay(15);
 }
 
