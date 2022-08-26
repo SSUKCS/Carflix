@@ -10,10 +10,7 @@
 //#define WORK_MOTOR
 
 //eeprom에 쓸 데이터 크기(바이트 단위)
-#define CAR_ID_LENGTH 16
-#define MB_ID_LENGTH 16
-
-unsigned char transmissionId[CAR_ID_LENGTH] = {0};
+#define CAR_ID_LENGTH 8
 
 //모터 스피드 세팅. 실질적으로 130~255 사이의 값을 줘야 움직임
 #define DEFAULT_SPEED 255
@@ -26,13 +23,11 @@ unsigned char transmissionId[CAR_ID_LENGTH] = {0};
 
 //블루투스 프로토콜 헤더
 #define DEFAULT_HEADER_LENGTH 2
-#define MAX_INFORMATION_LENGTH 128
 const unsigned char defaultHeader[DEFAULT_HEADER_LENGTH] = {
     //'B', 'C'
     0xA6, 0x12
 };
 
-#define RS_CARCTL 25
 #define R_REQON 57
 #define R_START 59
 #define R_REQBC 65
@@ -52,14 +47,10 @@ const unsigned char defaultHeader[DEFAULT_HEADER_LENGTH] = {
 #define S_REQCONT_AVAIL 75
 #define S_DELETE_FAILED 80
 
-#define C_STOP 10
-#define C_REQ 105
-#define C_REQACK 106
-#define C_OPEN_TRUNK 3
-#define C_CLOSE_TRUNK 4
-#define C_OPEN_DOOR 1
-#define C_CLOSE_DOOR 2
-#define C_CAR_OFF 100
+#define C_DOOR_OPEN 1
+#define C_DOOR_CLOSE 2
+#define C_TRUNK_OPEN 3
+#define C_TRUNK_CLOSE 4
 
 #define EXIST_CR_ID 12
 #define NOT_EXIST_CR_ID 11
@@ -658,6 +649,7 @@ public:
         BACK_LEFT, BACK_RIGHT, BACK_STRAIGHT, STOP
     };
 
+    /*
     bool steer(Direction direction, Speed speed){
         if(started){
             if(speed==Speed::STOP || direction == Direction::STOP){
@@ -701,6 +693,7 @@ public:
         return false;
     }
 
+        */
     enum class LockingState{
         OPEN, CLOSE
     };
@@ -858,105 +851,18 @@ public:
     }
 };
 
-void Bluetooth::carControl(unsigned char code){
-    if(!remoteControlMode)
-        return;
-    Car::Speed speed;
-    Car::Direction direction;
-    switch(code){
-        case C_STOP:
-            car->steer(Car::Direction::STOP, Car::Speed::STOP);
-            break;
-        case C_CAR_OFF:
-            car->off();
-            break;
-        case C_OPEN_DOOR:
-            if(car->getDoorState() != Car::LockingState::OPEN)
-                car->controlDoor(Car::LockingState::OPEN);
-            break;
-        case C_CLOSE_DOOR:
-            if(car->getDoorState() != Car::LockingState::CLOSE)
-                car->controlDoor(Car::LockingState::CLOSE);
-            break;
-        case C_OPEN_TRUNK:
-            if(car->getTrunkState() != Car::LockingState::OPEN)
-                car->controlTrunk(Car::LockingState::OPEN);
-            break;
-        case C_CLOSE_TRUNK:
-            if(car->getTrunkState() != Car::LockingState::CLOSE)
-                car->controlTrunk(Car::LockingState::CLOSE);
-            break;
-        default:
-            car->stopShowcase();
-            switch(code/10){
-                case 1:
-                    car->steer(Car::Direction::STOP, Car::Speed::STOP);
-                    return;
-                case 2:
-                    speed = Car::Speed::SLOW;
-                    break;
-                case 3:
-                    speed = Car::Speed::FAST;
-                    break;
-                default:
-                    return;
-            }
-            switch(code % 10){
-                case 1:
-                    direction = Car::Direction::FORWARD_RIGHT;
-                    break;
-                case 2:
-                    direction = Car::Direction::FORWARD_STRAIGHT;
-                    break;
-                case 3:
-                    direction = Car::Direction::FORWARD_LEFT;
-                    break;
-                case 5:
-                    direction = Car::Direction::BACK_LEFT;
-                    break;
-                case 6:
-                    direction = Car::Direction::BACK_STRAIGHT;
-                    break;
-                case 7:
-                    direction = Car::Direction::BACK_RIGHT;
-                    break;
-                default:
-                    return;
-            }
-            car->steer(direction, speed);
-            break;
-    }
-}
-
 bool Bluetooth::interpret(){
     unsigned char headerNumber = btSerial.read(false);
     unsigned char next;
-    unsigned char temp[100];
+    unsigned char temp[CAR_ID_LENGTH+1];
     int i;
     switch(headerNumber){
-        case RS_CARCTL:
-            next = btSerial.read();
-            if(next == C_REQ){
-                next = C_REQACK;
-                sendData(RS_CARCTL, &next);
-                Serial.println("Connected.");
-                lcd.print("remote control", "connected!", 5000);
-                remoteControlMode = true;
-            }
-            else{
-                carControl(next);
-            }
-			break;
         case R_REQON:
             rom.getCarId(temp);
-            for(i = 0 ; i < MB_ID_LENGTH ; i++)
-                temp[CAR_ID_LENGTH+i] = btSerial.read();
-            temp[CAR_ID_LENGTH+i] = 1;
             sendData(S_REQON_AVAIL, temp);
             Serial.println("send reqonavail");
 			break;
 		case R_START:
-            rom.getCarId(transmissionId);
             car->remoteOn();
 			break;
         case R_OFF_OK:
@@ -973,7 +879,6 @@ bool Bluetooth::interpret(){
 		case R_ASSIGN_ID:
             for(i = 0 ; i < CAR_ID_LENGTH ; i++)
                 temp[i] = btSerial.read();
-            temp[i]='\0';
             Serial.print("assignId:");
             Serial.println((char*)temp);
             rom.updateCarId(temp);
@@ -1000,9 +905,6 @@ bool Bluetooth::interpret(){
 			break;
         case R_REQCONT:
             rom.getCarId(temp);
-            for(i = 0 ; i < MB_ID_LENGTH ; i++)
-                temp[CAR_ID_LENGTH+i] = btSerial.read();
-            temp[CAR_ID_LENGTH+i] = btSerial.read();    
             sendData(S_REQCONT_AVAIL, temp);
             Serial.println("send cont avail.");
 			break;
@@ -1010,25 +912,25 @@ bool Bluetooth::interpret(){
             next = btSerial.read();
             Serial.println("got cont.");
             switch(next){
-                case C_OPEN_DOOR:
+                case C_DOOR_OPEN:
                     if(car->getDoorState() != Car::LockingState::OPEN){
                         car->controlDoor(Car::LockingState::OPEN);
                         lcd.print("Open the door.", 3000);
                     }
                     break;
-                case C_CLOSE_DOOR:
+                case C_DOOR_CLOSE:
                     if(car->getDoorState() != Car::LockingState::CLOSE){
                         car->controlDoor(Car::LockingState::CLOSE);
                         lcd.print("Close the door.", 3000);
                     }
                     break;
-                case C_OPEN_TRUNK:
+                case C_TRUNK_OPEN:
                     if(car->getTrunkState() != Car::LockingState::OPEN){
                         car->controlTrunk(Car::LockingState::OPEN);
                         lcd.print("Open the trunk.", 3000);
                     }
                     break;
-                case C_CLOSE_TRUNK:
+                case C_TRUNK_CLOSE:
                     if(car->getTrunkState() != Car::LockingState::CLOSE){
                         car->controlTrunk(Car::LockingState::CLOSE);
                         lcd.print("Close the trunk.", 3000);
@@ -1047,11 +949,8 @@ void Bluetooth::sendData(unsigned char headerCode, unsigned char *dataArray){
     unsigned char data;
     int dataArrayLength = 0;
     switch(headerCode){
-        case RS_CARCTL:
-            dataArrayLength = 1;
-			break;
         case S_REQON_AVAIL:
-            dataArrayLength = CAR_ID_LENGTH + MB_ID_LENGTH + 1;
+            dataArrayLength = CAR_ID_LENGTH;
             break;
         case S_REQSEND_STATE:
             dataArrayLength = 0;
@@ -1072,7 +971,7 @@ void Bluetooth::sendData(unsigned char headerCode, unsigned char *dataArray){
             dataArrayLength = 0;
             break;
         case S_REQCONT_AVAIL:
-            dataArrayLength = CAR_ID_LENGTH + MB_ID_LENGTH + 1;
+            dataArrayLength = CAR_ID_LENGTH;
             break;
         default:
             return;
@@ -1090,12 +989,12 @@ void Bluetooth::sendData(unsigned char headerCode, unsigned char *dataArray){
 }
 
 void CarOnSender::onRepeat(int count){
-    bluetooth->sendData(S_REQSEND_STATE, transmissionId);
+    bluetooth->sendData(S_REQSEND_STATE);
     Serial.println("send on message");
 }
 
 void CarOffSender::onRepeat(int count){
-    bluetooth->sendData(S_REQSEND_OFF, transmissionId);
+    bluetooth->sendData(S_REQSEND_OFF);
     Serial.println("send off message");
 }
 
