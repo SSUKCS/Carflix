@@ -27,7 +27,7 @@ const unsigned char defaultHeader[DEFAULT_HEADER_LENGTH] = {
     //'B', 'C'
     0xA6, 0x12
 };
-
+#define G_CRID 50
 #define R_REQON 57
 #define R_START 59
 #define R_REQBC 65
@@ -949,6 +949,8 @@ void Bluetooth::sendData(unsigned char headerCode, unsigned char *dataArray){
     unsigned char data;
     int dataArrayLength = 0;
     switch(headerCode){
+        case G_CRID:
+        case S_REQCONT_AVAIL:
         case S_REQON_AVAIL:
             dataArrayLength = CAR_ID_LENGTH;
             break;
@@ -969,9 +971,6 @@ void Bluetooth::sendData(unsigned char headerCode, unsigned char *dataArray){
             break;
         case S_DELETE_FAILED:
             dataArrayLength = 0;
-            break;
-        case S_REQCONT_AVAIL:
-            dataArrayLength = CAR_ID_LENGTH;
             break;
         default:
             return;
