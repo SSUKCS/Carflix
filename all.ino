@@ -8,7 +8,7 @@
 
 //모터 작동을 안하게 하려면 주석처리
 //#define WORK_MOTOR
-
+//#define WORK_SERVOMOTOR
 //eeprom에 쓸 데이터 크기(바이트 단위)
 #define CAR_ID_LENGTH 8
 
@@ -408,15 +408,22 @@ class Door{
     :openingAngle(openingAngle), closingAngle(closingAngle), opened(false) {}
     void attach(int pin){
         this->pin = pin;
+#ifdef WORK_SERVOMOTOR
         servo.attach(pin);
+#endif
     }
     void open(){
         opened=true;
+#ifdef WORK_SERVOMOTOR
         servo.write(openingAngle);
+#endif
     }
     void close(){
+
         opened=false;
+#ifdef WORK_SERVOMOTOR
         servo.write(closingAngle);
+#endif
     }
     bool isOpened(){
         return opened;
