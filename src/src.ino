@@ -868,22 +868,22 @@ bool Bluetooth::interpret(){
             rom.getCarId(temp);
             sendData(S_REQON_AVAIL, temp);
             Serial.println("send reqonavail");
-			break;
-		case R_START:
+      break;
+    case R_START:
             car->remoteOn();
-			break;
+      break;
         case R_OFF_OK:
             car->stopSendOff();
             break;
-		case R_REQBC:
+    case R_REQBC:
             Serial.println("got reqbc");
             if(rom.isCarIdExist())
                 next = EXIST_CR_ID;
             else
                 next = NOT_EXIST_CR_ID;
             sendData(S_SUCBC, &next);
-			break;
-		case R_ASSIGN_ID:
+      break;
+    case R_ASSIGN_ID:
             for(i = 0 ; i < CAR_ID_LENGTH ; i++)
                 temp[i] = btSerial.read();
             Serial.print("assignId:");
@@ -891,8 +891,8 @@ bool Bluetooth::interpret(){
             rom.updateCarId(temp);
             lcd.print("car id assigned.", 4000);
             sendData(S_ASSIGN_ID_OK);
-			break;
-		case R_DELETE_ID:
+      break;
+    case R_DELETE_ID:
             for(i = 0 ; i < CAR_ID_LENGTH ; i++)
                 temp[i] = btSerial.read();
             temp[i]='\0';
@@ -909,12 +909,12 @@ bool Bluetooth::interpret(){
                 Serial.println("different.");
                 sendData(S_DELETE_FAILED);
             }
-			break;
+      break;
         case R_REQCONT:
             rom.getCarId(temp);
             sendData(S_REQCONT_AVAIL, temp);
             Serial.println("send cont avail.");
-			break;
+      break;
         case R_CONT:
             next = btSerial.read();
             Serial.println("got cont.");
@@ -944,7 +944,7 @@ bool Bluetooth::interpret(){
                     }
                     break;
             }
-			break;
+      break;
         default:
             return false;
     }
@@ -1040,4 +1040,3 @@ void loop() {
     reserver.update();
     bluetooth.receiveData();
 }
-
