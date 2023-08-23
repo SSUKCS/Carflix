@@ -1,4 +1,4 @@
-Carflix App
+Carflix Car Module
 ===
 What is Carflix?
 ---
