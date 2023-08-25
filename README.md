@@ -21,14 +21,14 @@ Carflix 서비스의 목표는 다음과 같다.
 ### 시스템 구성도
 > * 사용자는 스마트폰 앱을 통하여 그룹을 생성하거나, 초대 코드를 이용하여 그룹에 가입할 수 있다. 그룹을 생성한 사람은 대표자가 되고, 그룹에 가입하면 일반 사용자가 된다.
 > 
->   <img src="https://github.com/SSUKCS/CarflixArduino/blob/master/readmeimg/service_composition.png?raw=true" title="서비스 구성" alt="service composition"></img><br/>
+>   <img src="https://github.com/simjeehoon/src_repository/blob/master/CarflixArduino/master/service_composition.png?raw=true" title="서비스 구성" alt="service composition"></img><br/>
 > 
 > * 모든 그룹원은 지문/PIN 등의 본인 인증을 거친 뒤, 차량을 제어하거나 위치 정보를 조회할 수 있다. 
 > * 부매니저는 대표자의 일부 권한 위임받은 사용자이다. 부매니저 권한을 가진 사용자라면, 차량 사용 기록 조회, 회원 초대, 그룹원 계급 변경 등 운영과 관련된 활동을 수행할 수 있다. 
 > * 최초로 그룹을 생성한 사람이 대표자가 되는데, 유일하게 차량 등록과 삭제를 할 수 있는 사용자이다.
 >
->   <img src="https://github.com/SSUKCS/CarflixArduino/blob/master/readmeimg/group_registeration_step.png?raw=true" title="등록 과정" alt="register"></img><br/>
->   <img src="https://github.com/SSUKCS/CarflixArduino/blob/master/readmeimg/door_step.png?raw=true" title="제어 및 시동" alt="control_step"></img><br/>
+>   <img src="https://github.com/simjeehoon/src_repository/blob/master/CarflixArduino/master/group_registeration_step.png?raw=true" title="등록 과정" alt="register"></img><br/>
+>   <img src="https://github.com/simjeehoon/src_repository/blob/master/CarflixArduino/master/door_step.png?raw=true" title="제어 및 시동" alt="control_step"></img><br/>
 >
 > * 대표자가 차량을 등록하는 과정은 [그림 2]와 같다. 스마트폰 앱에서 차량 모듈을 블루투스로 연결한 후, 서버로부터 받은 차량 ID를 할당한다. 차량 ID는 차량 제어 작업 이전에 서버로부터 작업이 유효한지 검증받기 위해 쓰이는 고유한 값이다. 이 값이 성공적으로 할당되면 차량 등록이 완료된다.
 > * 등록된 차량을 삭제하는 과정도 등록 과정과 유사하다. 서버에 저장된 블루투스 MAC 주소와 탐지된 모듈의 MAC 주소가 일치할 때만 모듈의 메모리에서 ID를 지운다.
@@ -37,7 +37,7 @@ Carflix 서비스의 목표는 다음과 같다.
 
 
 ### 시스템 설계
-> <img src="https://github.com/SSUKCS/CarflixArduino/blob/master/readmeimg/car.png?raw=true" title="차량" alt="car"></img><br/>
+> <img src="https://github.com/simjeehoon/src_repository/blob/master/CarflixArduino/master/car.png?raw=true" title="차량" alt="car"></img><br/>
 > * 아두이노에 블루투스 모듈인 HC-06을 장착하여 차량 모듈을 만들었다. 모듈은 I2C 1602 LCD를 이용하여 현재 상태를 표시한다. 차량 ID를 저장하기 위한 비휘발성 메모리는 아두이노의 EEPROM을 이용하였다.
 > * 모듈과 신호를 주고받는 차량을 구현하기 위해 [그림 4]와 같이 차량 모형을 만들었다. 시동이 켜졌을 때 5개의 LED가 켜지고, L298N 모터 드라이버에 연결된 DC 모터에 의해 바퀴가 굴러갈 수 있게 하였다. 
 > * 또한 차량의 시동을 켜고 끌 수 있는 기능과 EEPROM를 강제로 초기화하는 기능을 구현하기 위해 tact 스위치 2개를 부착하였다. 문과 트렁크의 잠금/잠금 해제는 서보모터를 이용하여 구현하였다.
